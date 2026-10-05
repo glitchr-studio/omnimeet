@@ -1,0 +1,55 @@
+{
+    "name": "glitchr/omnimeet",
+    "type": "library",
+    "description": "Omnimeet: one contract for video meetings - open a room, let a participant in (a JavaScript engine and its options, an embedded frame, or an address), close it, read its state, hear the provider's callbacks - whatever carries the call: the two browsers themselves (omnimeet/direct) or a conferencing service (omnimeet/jitsi); and its Symfony bundle.",
+    "keywords": [
+        "video",
+        "meeting",
+        "conference",
+        "webrtc",
+        "teleconsultation",
+        "jitsi",
+        "omnimeet"
+    ],
+    "homepage": "https://github.com/glitchr-studio/omnimeet",
+    "license": "LGPL-3.0-or-later",
+    "authors": [
+        {
+            "name": "Marco Meyer",
+            "email": "marco.meyer@glitchr.io"
+        }
+    ],
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "symfony/config": "^6.4|^7.0|^8.0",
+        "symfony/dependency-injection": "^6.4|^7.0|^8.0",
+        "symfony/http-kernel": "^6.4|^7.0|^8.0"
+    },
+    "suggest": {
+        "omnimeet/direct": "From browser to browser: two people, end to end, no third party - the default gateway, no key",
+        "omnimeet/jitsi": "Jitsi Meet: a self-hosted or hosted instance, a token per participant, an embedded frame, several people",
+        "symfony/config": "In a Symfony application: the configuration of Omnimeet\\Bridge\\Symfony\\OmnimeetBundle",
+        "symfony/dependency-injection": "In a Symfony application: the services of Omnimeet\\Bridge\\Symfony\\OmnimeetBundle",
+        "symfony/http-kernel": "In a Symfony application: Omnimeet\\Bridge\\Symfony\\OmnimeetBundle itself"
+    },
+    "autoload": {
+        "psr-4": {
+            "Omnimeet\\": ""
+        },
+        "exclude-from-classmap": [
+            "/Tests/",
+            "/docker/"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Omnimeet\\Tests\\": "Tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

@@ -1,0 +1,17 @@
+<?php
+
+namespace Omnimeet\Exception;
+
+/** The provider refused, or could not be reached. */
+class ProviderException extends \RuntimeException implements OmnimeetException
+{
+    public function __construct(
+        public readonly string $provider,
+        string $message,
+        /** The provider's own error code, when it gave one */
+        public readonly ?string $providerCode = null,
+        ?\Throwable $previous = null,
+    ) {
+        parent::__construct(\sprintf('[%s] %s', $provider, $message), 0, $previous);
+    }
+}
