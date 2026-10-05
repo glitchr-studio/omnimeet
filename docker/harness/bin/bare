@@ -1,0 +1,150 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Omnimeet in bare PHP: no bundle, no container, no console component. The
+ * registry is built by hand from the gateway packages installed, each
+ * gateway says what its meetings are and what it does, then one meeting is
+ * held on each:
+ *
+ *   - direct: opened, the host and the guest let in (the engine and their
+ *     ICE servers), a whole handshake relayed between them through the
+ *     store - hello, offer, answer, candidates - read back as LIVE, closed,
+ *     its handshake purged;
+ *   - jitsi: opened (its room named), the host let in - the frame's
+ *     address, the token and its claims. No instance is called: a Jitsi room
+ *     exists when its first participant comes in.
+ *
+ * and the script lists what PHP loaded on the way.
+ *
+ *   docker compose run --rm omnimeet bare          # exits 1 when a class of a framework was loaded
+ *   docker compose run --rm omnimeet bare --json   # the same, whole: every class and file loaded
+ *
+ * A gateway whose settings are not in the environment runs on the example
+ * ones of config/gateways.php. OMNIMEET_AUTOLOAD names another autoloader
+ * than the harness's.
+ */
+
+use Omnimeet\Model\Meeting;
+use Omnimeet\Model\Participant;
+use Omnimeet\Registry;
+use Omnimeet\Request;
+
+require getenv('OMNIMEET_AUTOLOAD') ?: '/harness/vendor/autoload.php';
+
+$direct = 'Omnimeet\\Direct\\DirectGatewayFactory';
+$store = class_exists($direct) ? new Omnimeet\Direct\InMemorySignalStore() : null;
+$factories = [];
+foreach (require __DIR__.'/../plugins.php' as [, $class]) {
+    if (class_exists($class)) {
+        // The direct gateway is given the store of its handshake - here, this process's memory.
+        $factories[] = $direct === $class ? new $class($store) : new $class();
+    }
+}
+$installed = array_map(static fn ($factory) => $factory->getName(), $factories);
+$config = $example = [];
+foreach (require __DIR__.'/../config/gateways.php' as $name => $gateway) {
+    if (!\in_array($gateway['factory'], $installed, true)) {
+        continue;
+    }
+    $configured = [] === array_filter($gateway['needs'], static fn (string $key) => false === getenv($key) || '' === getenv($key));
+    $example[$name] = !$configured;
+    $config[$name] = ['factory' => $gateway['factory'], 'options' => $configured ? array_filter($gateway['options'], static fn ($value) => null !== $value) : $gateway['example']];
+}
+$registry = new Registry($factories, $config);
+
+$operations = ['open' => Request\Open::class, 'join' => Request\Join::class, 'close' => Request\Close::class, 'fetch' => Request\Fetch::class, 'notify' => Request\Notify::class];
+$report = ['gateways' => [], 'direct' => null, 'jitsi' => null];
+foreach ($registry->all() as $name => $gateway) {
+    $report['gateways'][$name] = [
+        'title' => $gateway->getTitle(),
+        'example' => $example[$name],
+        'does' => array_keys(array_filter($operations, static fn (string $request) => $gateway->supports($request))),
+    ] + $gateway->capabilities()->toArray();
+}
+
+$planned = new Meeting('bare-meeting-a-key-nobody-guesses', new DateTimeImmutable(), new DateTimeImmutable('+30 minutes'));
+$host = Participant::host('u1', 'Dr Claire Tilleul', 'fr');
+$guest = Participant::guest('u2', 'Camille Érable', 'fr');
+
+if ($registry->has('direct')) {
+    $gateway = $registry->get('direct');
+    $meeting = $gateway->open($planned);
+    $room = $meeting->reference();
+    $access = $gateway->join($meeting, $host);
+    $signaling = (new $direct($store))->signaling();
+
+    // The guest comes in and says hello; the host hears it and offers; the guest answers; each sends a candidate.
+    $signaling->send($room, $guest->id, 'hello');
+    $heard = $signaling->receive($room, $host->id);
+    $signaling->send($room, $host->id, 'offer', json_encode(['type' => 'offer', 'sdp' => 'v=0']));
+    $signaling->send($room, $host->id, 'candidate', json_encode(['candidate' => 'candidate:1 1 udp 2122260223 192.0.2.1 54321 typ host']));
+    $offered = $signaling->receive($room, $guest->id);
+    $answer = $signaling->send($room, $guest->id, 'answer', json_encode(['type' => 'answer', 'sdp' => 'v=0']));
+    $live = $gateway->fetch($meeting);
+    $closed = $gateway->close($meeting);
+
+    $report['direct'] = [
+        'reference' => $room,
+        'access' => ['kind' => $access->kind->value, 'engine' => $access->engine, 'script' => is_file((string) $access->script) ? basename((string) $access->script) : null, 'role' => $access->options['role'], 'ice_servers' => \count($access->options['iceServers']), 'third_party' => $access->isThirdParty()],
+        'guest_role' => $gateway->join($meeting, $guest)->options['role'],
+        'host_heard' => array_column($heard, 'type'),
+        'guest_heard' => array_column($offered, 'type'),
+        'connects' => $answer->connects(),
+        'status' => $live->status->value,
+        'present' => array_map(static fn (Participant $p) => $p->id, $live->present),
+        'closed' => $closed->status->value,
+        'left_in_store' => \count($store->read($room)),
+    ];
+}
+
+if ($registry->has('jitsi')) {
+    $gateway = $registry->get('jitsi');
+    $meeting = $gateway->open($planned);
+    $access = $gateway->join($meeting, $host);
+    $token = $access->options['jwt'] ?? null;
+    $claims = null === $token ? null : json_decode((string) base64_decode(strtr(explode('.', $token)[1], '-_', '+/')), true);
+    $report['jitsi'] = [
+        'reference' => $meeting->reference(),
+        'same_again' => $gateway->open($planned)->reference === $meeting->reference(),
+        'access' => ['kind' => $access->kind->value, 'engine' => $access->engine, 'script' => is_file((string) $access->script) ? basename((string) $access->script) : null, 'url' => strtok((string) $access->url, '?#'), 'api' => $access->options['api'], 'origins' => $access->origins, 'third_party' => $access->isThirdParty()],
+        'token' => null === $claims ? null : ['room' => $claims['room'], 'user' => $claims['context']['user'], 'expires_after_the_end' => $claims['exp'] > $planned->endsAt->getTimestamp()],
+    ];
+}
+
+// What PHP loaded to get there: the proof that no framework was needed.
+$report['symbols'] = [...get_declared_classes(), ...get_declared_interfaces(), ...get_declared_traits()];
+$report['files'] = get_included_files();
+$framework = array_values(preg_grep('~^(?:Symfony\\\\Component\\\\(?:DependencyInjection|Config|HttpKernel|HttpFoundation)|Symfony\\\\Bundle|Doctrine|Twig)\\\\~', $report['symbols']));
+$symfony = array_values(array_unique(array_map(static fn (string $s) => implode('\\', \array_slice(explode('\\', $s), 0, 3)), preg_grep('~^Symfony\\\\(?!Polyfill)~', $report['symbols']))));
+sort($symfony);
+
+if (\in_array('--json', $argv, true)) {
+    echo json_encode($report, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE), "\n";
+    exit($framework ? 1 : 0);
+}
+
+echo "Omnimeet in bare PHP: the registry built by hand, no bundle, no container.\n\n";
+foreach ($report['gateways'] as $name => $gateway) {
+    printf("  %-8s %s: %s, %s, %s; lets in by %s; does %s%s\n", $name, $gateway['title'],
+        null === $gateway['maxParticipants'] ? 'several people' : $gateway['maxParticipants'].' people',
+        $gateway['thirdParty'] ? 'through a third party' : 'no third party',
+        $gateway['endToEnd'] ? 'end to end' : 'not end to end',
+        implode(', ', $gateway['access']), implode(' ', $gateway['does']), $gateway['example'] ? ' (example settings)' : '');
+}
+if (!$report['gateways']) {
+    echo "  no omnimeet/* gateway package is installed\n";
+}
+if ($d = $report['direct']) {
+    printf("\ndirect, the meeting \"%s\":\n  the host is let in by the %s engine (%s), %d ICE server(s), the guest as \"%s\"\n  the host heard: %s; the guest heard: %s\n  the answer connects them: %s (present: %s)\n  closed: %s, %d message(s) left in the store\n",
+        $d['reference'], $d['access']['engine'], $d['access']['script'], $d['access']['ice_servers'], $d['guest_role'],
+        implode(', ', $d['host_heard']), implode(', ', $d['guest_heard']), $d['status'], implode(', ', $d['present']), $d['closed'], $d['left_in_store']);
+}
+if ($j = $report['jitsi']) {
+    printf("\njitsi, the same meeting:\n  its room: %s (the same when opened again: %s)\n  the host is let in by a frame on %s, driven by %s through %s\n  %s\n",
+        $j['reference'], $j['same_again'] ? 'yes' : 'no', $j['access']['url'], $j['access']['script'], $j['access']['api'],
+        null === $j['token'] ? 'no token: an open instance, the room\'s name is the only secret' : sprintf('a token for the room %s, for %s (%s), valid until after the meeting\'s end: %s', $j['token']['room'], $j['token']['user']['name'] ?? '?', $j['token']['user']['id'], $j['token']['expires_after_the_end'] ? 'yes' : 'no'));
+}
+echo "\nLoaded from Symfony: ", implode(', ', $symfony) ?: 'nothing', "\n";
+echo 'Classes of a framework (DependencyInjection, Config, HttpKernel, HttpFoundation, a bundle, Doctrine, Twig): ', $framework ? implode(', ', $framework) : 'none', "\n";
+exit($framework ? 1 : 0);

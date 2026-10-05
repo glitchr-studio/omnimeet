@@ -1,0 +1,35 @@
+# glitchr/omnimeet with every gateway package:
+#
+#   cp .env.dist .env                                          # a relay, a Jitsi instance, when you have them
+#   docker compose run --rm omnimeet gateways                  # which gateways are installed and configured, what each is and does
+#   docker compose run --rm omnimeet open direct my-meeting    # the meeting's reference on that gateway
+#   docker compose run --rm omnimeet join direct my-meeting --role host --id u1
+#   docker compose run --rm omnimeet join jitsi my-meeting --role guest --id u2 --name "Camille" --locale fr
+#   docker compose run --rm omnimeet handshake                 # direct: a whole handshake, message by message, then closed
+#   docker compose run --rm omnimeet notify jitsi event.json --signature "t=...,v1=..."
+#   docker compose run --rm omnimeet bare                      # plain PHP: no bundle, no container, and what PHP loaded
+#   docker compose run --rm omnimeet test                      # every package's tests
+#   docker compose up                                          # the demo, http://localhost:8799/ : a call between two tabs, in plain PHP
+#
+# Gateways come from GitHub (branch 1.x) unless their checkout sits under
+# OMNIMEET_PLUGINS (set it to ../.. in .env when this core sits in the
+# workspace beside them): then that checkout is what runs.
+name: omnimeet-harness
+
+services:
+  omnimeet:
+    build: .
+    image: glitchr/omnimeet-harness
+    command: serve
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "${OMNIMEET_PORT:-8799}:8799"
+    volumes:
+      - ..:/omnimeet/core
+      - ${OMNIMEET_PLUGINS:-./plugins}:/omnimeet/plugins:ro
+      - harness:/harness
+
+volumes:
+  harness:
