@@ -164,7 +164,7 @@ try {
                 '<p class="note">This meeting goes through <strong>', $e(implode(', ', $access->origins)), '</strong>, a third party', $access->expiresAt ? ' (the token lapses at '.$e($access->expiresAt->format('H:i')).')' : '', '. Nothing is loaded from it before you enter.</p>',
                 '<p class="status" data-status role="status">Not entered.</p>',
                 '<div class="controls"><button type="button" data-enter>Enter</button><button type="button" data-leave hidden>Leave</button>', Role::HOST === $role ? '<button type="button" data-end hidden>End for everyone</button>' : '', '</div>',
-                '<div class="frame" data-jitsi-frame></div></section>',
+                '<div class="frame" data-omnimeet-frame></div></section>',
                 '<script src="/engine/', $e($access->engine), '.js"></script>',
                 '<script>(function(){var root=document.querySelector("[data-omnimeet-jitsi]"),q=function(s){return root.querySelector(s)};
                     q("[data-enter]").onclick=function(){root.omnimeet.join()};q("[data-leave]").onclick=function(){root.omnimeet.leave()};
