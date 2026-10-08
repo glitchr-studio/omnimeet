@@ -102,4 +102,4 @@ docker compose run --rm omnimeet test
 docker compose up                              # the demo, in plain PHP: http://localhost:8799/
 ```
 
-License: LGPL-3.0-or-later.
+License: MIT since 2026-10-09; earlier versions remain published under LGPL-3.0-or-later.
